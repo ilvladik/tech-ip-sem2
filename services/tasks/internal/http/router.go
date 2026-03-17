@@ -8,7 +8,7 @@ import (
 	"tech-ip-sem2/shared/middleware"
 )
 
-func RegisterRoutes(taskService *service.TaskService, authClient *authclient.Client) http.Handler {
+func RegisterRoutes(taskService *service.TaskService, authClient *authclient.GRPCClient) http.Handler {
 	mux := http.NewServeMux()
 	h := NewTaskHandler(taskService)
 

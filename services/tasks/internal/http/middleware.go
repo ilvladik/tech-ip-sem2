@@ -5,19 +5,25 @@ import (
 	"net/http"
 	"strings"
 
-	authclient "tech-ip-sem2/services/tasks/internal/client"
+	"tech-ip-sem2/services/tasks/internal/client"
 	"tech-ip-sem2/shared/middleware"
 )
 
 const (
-	userSubjectKey string = "subject"
+	userSubjectKey contextKey = "subject"
 )
 
+type contextKey string
+
 type AuthMiddleware struct {
-	authClient *authclient.Client
+	authClient *client.GRPCClient
 }
 
-func NewAuthMiddleware(authClient *authclient.Client) *AuthMiddleware {
+type errorResponse struct {
+	Error string `json:"error"`
+}
+
+func NewAuthMiddleware(authClient *client.GRPCClient) *AuthMiddleware {
 	return &AuthMiddleware{
 		authClient: authClient,
 	}
@@ -26,19 +32,27 @@ func NewAuthMiddleware(authClient *authclient.Client) *AuthMiddleware {
 func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
-		requestID := middleware.GetRequestID(r.Context())
 		if authHeader == "" {
 			respondWithError(w, http.StatusUnauthorized, "Missing authorization header")
 			return
 		}
 
 		if !strings.HasPrefix(authHeader, "Bearer ") {
-			respondWithError(w, http.StatusUnauthorized, "Invalid authorization format")
+			respondWithError(w, http.StatusUnauthorized, "Invalid authorization format. Use Bearer token")
 			return
 		}
 
 		token := strings.TrimPrefix(authHeader, "Bearer ")
-		valid, subject, err := m.authClient.VerifyToken(r.Context(), token, requestID)
+		if token == "" {
+			respondWithError(w, http.StatusUnauthorized, "Empty token")
+			return
+		}
+
+		requestID := middleware.GetRequestID(r.Context())
+
+		ctx := context.WithValue(r.Context(), "request_id", requestID)
+
+		valid, subject, err := m.authClient.Verify(ctx, token)
 
 		if err != nil {
 			respondWithError(w, http.StatusInternalServerError, "Authentication service unavailable")
@@ -46,11 +60,16 @@ func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 		}
 
 		if !valid {
-			respondWithError(w, http.StatusUnauthorized, "Invalid token")
+			respondWithError(w, http.StatusUnauthorized, "Invalid or expired token")
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), userSubjectKey, subject)
+		ctx = context.WithValue(r.Context(), userSubjectKey, subject)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func GetUserSubject(ctx context.Context) (string, bool) {
+	subject, ok := ctx.Value(userSubjectKey).(string)
+	return subject, ok
 }

@@ -18,7 +18,6 @@ COPY --from=builder /tasks .
 EXPOSE 8082
 
 ENV TASKS_PORT=8082
-ENV AUTH_MODE=http
-ENV AUTH_BASE_URL=http://localhost:8081
+ENV AUTH_GRPC_URL=auth:50051
 
 CMD ["./tasks"]

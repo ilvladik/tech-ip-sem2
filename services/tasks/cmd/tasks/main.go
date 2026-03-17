@@ -17,15 +17,17 @@ func main() {
 		log.Panicf("TASKS_PORT not set, using default: %s", port)
 	}
 
-	authBaseURL := os.Getenv("AUTH_BASE_URL")
+	authBaseURL := os.Getenv("AUTH_GRPC_URL")
 	if authBaseURL == "" {
-		authBaseURL = "http://localhost:8081"
+		authBaseURL = "localhost:50051"
 		log.Panicf("AUTH_BASE_URL not set, using default: %s", authBaseURL)
 	}
 
 	taskService := service.NewTaskService()
-	authClient := authclient.NewClient(authBaseURL, 3*time.Second)
-
+	authClient, err := authclient.NewGRPCClient(authBaseURL)
+	if err != nil {
+		log.Fatal("Failed to connect to grpc server: ", err)
+	}
 	handler := taskHttp.RegisterRoutes(taskService, authClient)
 
 	server := &http.Server{

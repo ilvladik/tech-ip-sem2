@@ -10,7 +10,7 @@ import (
 	"tech-ip-sem2/shared/httpx"
 )
 
-type Client struct {
+type HttpClient struct {
 	httpClient *httpx.HTTPClient
 }
 
@@ -20,13 +20,13 @@ type VerifyResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
-func NewClient(baseURL string, timeout time.Duration) *Client {
-	return &Client{
+func NewHttpClient(baseURL string, timeout time.Duration) *HttpClient {
+	return &HttpClient{
 		httpClient: httpx.NewHTTPClient(baseURL, timeout),
 	}
 }
 
-func (c *Client) VerifyToken(ctx context.Context, token string, requestId string) (bool, string, error) {
+func (c *HttpClient) VerifyToken(ctx context.Context, token string, requestId string) (bool, string, error) {
 	headers := map[string]string{
 		"Authorization": "Bearer " + token,
 		"X-Request-ID":  requestId,
