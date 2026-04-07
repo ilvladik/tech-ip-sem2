@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package auth;
+
+option go_package = "tech-ip-sem2/services/auth/pkg/authpb";
+
+message VerifyRequest {
+  string token = 1;
+}
+
+message VerifyResponse {
+  string subject = 1;
+}
+
+service AuthenticationService {
+  rpc Verify(VerifyRequest) returns (VerifyResponse);
+}

@@ -2,119 +2,149 @@ package main
 
 import (
 	"context"
-	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
-	"tech-ip-sem2/services/auth/internal/authgrpc"
-	authHttp "tech-ip-sem2/services/auth/internal/http"
-	"tech-ip-sem2/services/auth/internal/service"
-	authpb "tech-ip-sem2/services/auth/pkg/authpb/proto"
-
+	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+
+	apiGrpc "tech-ip-sem2/services/auth/internal/handlers/grpc"
+	apiHttp "tech-ip-sem2/services/auth/internal/handlers/http"
+	"tech-ip-sem2/services/auth/internal/usecases"
+	"tech-ip-sem2/services/auth/pkg/authpb"
+	"tech-ip-sem2/shared/interceptors"
+	"tech-ip-sem2/shared/logger"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	var wg sync.WaitGroup
-	authService := service.NewAuthService()
+	log, err := logger.New("auth")
+	if err != nil {
+		panic(err)
+	}
+	defer log.Sync()
 
-	httpErr := make(chan error, 1)
-	grpcErr := make(chan error, 1)
+	authenticationUsecase := usecases.NewAuthenticationUsecase()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := startHTTPServer(ctx, authService); err != nil {
-			httpErr <- err
+	g, ctx := errgroup.WithContext(ctx)
+
+	httpServer := newHTTPServer(authenticationUsecase, log)
+
+	g.Go(func() error {
+		log.Info("http server started",
+			zap.String("component", "http_server"),
+			zap.String("addr", httpServer.Addr),
+		)
+
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error("http server failed",
+				zap.String("component", "http_server"),
+				zap.Error(err),
+			)
+			return err
 		}
-	}()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := startGRPCServer(ctx, authService); err != nil {
-			grpcErr <- err
+		return nil
+	})
+
+	grpcServer, lis := newGRPCServer(authenticationUsecase, log)
+
+	g.Go(func() error {
+		log.Info("grpc server started",
+			zap.String("component", "grpc_server"),
+			zap.String("addr", lis.Addr().String()),
+		)
+
+		if err := grpcServer.Serve(lis); err != nil {
+			log.Error("grpc server failed",
+				zap.String("component", "grpc_server"),
+				zap.Error(err),
+			)
+			return err
 		}
-	}()
 
-	select {
-	case <-ctx.Done():
-		log.Println("Shutting down servers...")
-	case err := <-httpErr:
-		log.Printf("HTTP server error: %v", err)
-	case err := <-grpcErr:
-		log.Printf("gRPC server error: %v", err)
+		return nil
+	})
+
+	g.Go(func() error {
+		<-ctx.Done()
+
+		log.Info("shutting down servers",
+			zap.String("component", "main"),
+		)
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			log.Error("http shutdown error",
+				zap.String("component", "http_server"),
+				zap.Error(err),
+			)
+		}
+
+		grpcServer.GracefulStop()
+
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		log.Error("server error",
+			zap.String("component", "main"),
+			zap.Error(err),
+		)
 	}
 
-	time.Sleep(2 * time.Second)
-	wg.Wait()
-	log.Println("All servers stopped")
+	log.Info("servers stopped gracefully",
+		zap.String("component", "main"),
+	)
 }
 
-func startHTTPServer(ctx context.Context, authService *service.AuthenticationService) error {
+func newHTTPServer(authenticationUsecase *usecases.AuthenticationUsecase, log *zap.Logger) *http.Server {
 	port := getEnv("HTTP_PORT", "8081")
 
-	handler := authHttp.RegisterRoutes(authService)
-	server := &http.Server{
+	handler := apiHttp.RegisterRoutes(authenticationUsecase, log)
+
+	return &http.Server{
 		Addr:    ":" + port,
 		Handler: handler,
 	}
-
-	go func() {
-		<-ctx.Done()
-		log.Println("Shutting down HTTP server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("HTTP shutdown error: %v", err)
-		}
-	}()
-
-	log.Printf("HTTP server starting on port %s", port)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return err
-	}
-	return nil
 }
 
-func startGRPCServer(ctx context.Context, authService *service.AuthenticationService) error {
+func newGRPCServer(authenticationUsecase *usecases.AuthenticationUsecase, log *zap.Logger) (*grpc.Server, net.Listener) {
 	port := getEnv("GRPC_PORT", "50051")
 
 	lis, err := net.Listen("tcp", ":"+port)
 	if err != nil {
-		return err
+		log.Fatal("failed to listen",
+			zap.String("component", "grpc_server"),
+			zap.Error(err),
+		)
 	}
 
-	s := grpc.NewServer()
+	s := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(
+			interceptors.RequestIDUnaryInterceptor(),
+			interceptors.AccessLogUnaryInterceptor(log),
+		),
+	)
 
-	authServer := authgrpc.NewAuthenticationServer(authService)
-	authpb.RegisterAuthenticationServiceServer(s, authServer)
+	handler := apiGrpc.NewGRPCAuthenticationHandler(authenticationUsecase)
+	authpb.RegisterAuthenticationServiceServer(s, handler)
 
-	go func() {
-		<-ctx.Done()
-		log.Println("Shutting down gRPC server...")
-		s.GracefulStop()
-	}()
-
-	log.Printf("gRPC server starting on port %s", port)
-	if err := s.Serve(lis); err != nil && err != grpc.ErrServerStopped {
-		return err
-	}
-	return nil
+	return s, lis
 }
 
-func getEnv(key, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
+func getEnv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
-	return value
+	return def
 }
