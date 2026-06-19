@@ -1,0 +1,42 @@
+stages:
+  - test
+  - build
+  - docker
+
+test_auth:
+  stage: test
+  image: golang:1.22
+  script:
+    - cd pz7-docker/services/auth
+    - go mod tidy
+    - go test ./...
+    - go build ./...
+
+test_tasks:
+  stage: test
+  image: golang:1.22
+  script:
+    - cd pz7-docker/services/tasks
+    - go mod tidy
+    - go test ./...
+    - go build ./...
+
+docker_auth:
+  stage: docker
+  image: docker:24
+  services:
+    - docker:24-dind
+  needs: [test_auth, test_tasks]
+  script:
+    - cd pz7-docker/services/auth
+    - docker build -t techip-auth:$CI_COMMIT_SHORT_SHA .
+
+docker_tasks:
+  stage: docker
+  image: docker:24
+  services:
+    - docker:24-dind
+  needs: [test_auth, test_tasks]
+  script:
+    - cd pz7-docker/services/tasks
+    - docker build -t techip-tasks:$CI_COMMIT_SHORT_SHA .

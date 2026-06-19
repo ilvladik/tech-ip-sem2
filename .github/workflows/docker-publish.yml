@@ -1,0 +1,26 @@
+# Optional: push images to registry (requires secrets in GitHub Settings).
+# Run manually: Actions -> Docker Publish -> Run workflow
+
+name: Docker Publish
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to registry
+        run: echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin ghcr.io
+
+      - name: Build and push auth
+        run: |
+          docker build -t ghcr.io/${{ github.repository_owner }}/techip-auth:${{ github.sha }} ./pz7-docker/services/auth
+          docker push ghcr.io/${{ github.repository_owner }}/techip-auth:${{ github.sha }}
+
+      - name: Build and push tasks
+        run: |
+          docker build -t ghcr.io/${{ github.repository_owner }}/techip-tasks:${{ github.sha }} ./pz7-docker/services/tasks
+          docker push ghcr.io/${{ github.repository_owner }}/techip-tasks:${{ github.sha }}

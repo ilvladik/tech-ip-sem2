@@ -1,0 +1,35 @@
+services:
+  auth:
+    build:
+      context: ../services/auth
+    image: techip-auth:0.1
+    ports:
+      - "8087:8087"
+    environment:
+      AUTH_PORT: "8087"
+      AUTH_VALID_TOKEN: demo-token
+      LISTEN_ADDRESS: 0.0.0.0
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8087/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  tasks:
+    build:
+      context: ../services/tasks
+    image: techip-tasks:0.1
+    ports:
+      - "8088:8088"
+    environment:
+      TASKS_PORT: "8088"
+      AUTH_BASE_URL: http://auth:8087
+      LISTEN_ADDRESS: 0.0.0.0
+    depends_on:
+      auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8088/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

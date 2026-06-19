@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Комментарии</title>
+</head>
+<body>
+    <h1>Комментарии пользователя Alice</h1>
+    <ul>
+        
+        <li>&lt;script&gt;alert(1)&lt;/script&gt;</li>
+        
+    </ul>
+    <form method="POST" action="/comments">
+        <input type="hidden" name="csrf_token" value="37b57b7d043a44eb8b82d536695f9636">
+        <label for="text">Новый комментарий:</label><br>
+        <textarea id="text" name="text" rows="3" cols="40"></textarea><br>
+        <button type="submit">Добавить</button>
+    </form>
+    <p><a href="/profile">Назад к профилю</a></p>
+</body>
+</html>

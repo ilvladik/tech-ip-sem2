@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package student;
+
+option go_package = "example.com/pz2-grpc/gen/studentpb;studentpb";
+
+message PingRequest {
+  string message = 1;
+}
+
+message PingResponse {
+  string message = 1;
+}
+
+message GetStudentRequest {
+  int64 id = 1;
+}
+
+message Student {
+  int64 id = 1;
+  string full_name = 2;
+  string group = 3;
+  string email = 4;
+  string specialization = 5;
+}
+
+message GetStudentResponse {
+  Student student = 1;
+}
+
+message CreateStudentRequest {
+  string full_name = 1;
+  string group = 2;
+  string email = 3;
+  string specialization = 4;
+}
+
+message ListStudentsResponse {
+  repeated Student students = 1;
+}
+
+// Пустой запрос для ListStudents (аналог google.protobuf.Empty)
+message Empty {}
+
+service StudentService {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc GetStudentByID(GetStudentRequest) returns (GetStudentResponse);
+  rpc ListStudents(Empty) returns (ListStudentsResponse);
+  rpc CreateStudent(CreateStudentRequest) returns (GetStudentResponse);
+}
